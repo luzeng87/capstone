@@ -1484,9 +1484,36 @@ static int getID(struct InternalInstruction *insn)
 		insn->opcode = 0x90;
 
 		insn->instructionID = instructionIDWithNewOpcode;
-		insn->spec = specWithNewOpcode;
+		insn->spec = specifierForUID(insn->instructionID);
 
 		return 0;
+	}
+
+	/*
+	 * Special handling for CMPPD/CMPSD/CMPSS (opcode 0xC2).
+	 * The instruction tables incorrectly return CMPPD for all variants.
+	 * This post-processing fix corrects the instruction based on the prefix:
+	 *   - F2 prefix -> CMPSD (scalar double precision)
+	 *   - F3 prefix -> CMPSS (scalar single precision)
+	 *   - no prefix or 66 prefix -> CMPPD (packed double precision)
+	 */
+	if (insn->opcode == 0xc2) {
+		if (insn->twoByteEscape == 0x0f) {
+			if (insn->repeatPrefix == 0xf2) {
+				// F2 0F C2 = CMPSD (scalar double precision)
+				// Use X86_CMPSDrr_alt=693 which maps to X86_INS_CMPSD
+				insn->instructionID = 693; // X86_CMPSDrr_alt -> X86_INS_CMPSD
+			} else if (insn->repeatPrefix == 0xf3) {
+				// F3 0F C2 = CMPSS (scalar single precision)
+				// Use X86_CMPSSrr_alt=701 which maps to X86_INS_CMPSS
+				insn->instructionID = 701; // X86_CMPSSrr_alt -> X86_INS_CMPSS
+			}
+			// no prefix or 66 prefix -> CMPPD (already set correctly)
+			if (insn->repeatPrefix == 0xf2 || insn->repeatPrefix == 0xf3) {
+				insn->spec = specifierForUID(insn->instructionID);
+				return 0;
+			}
+		}
 	}
 
 	insn->instructionID = instructionID;
